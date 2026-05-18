@@ -1,0 +1,172 @@
+def escape_html(text: str) -> str:
+    return str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def is_weight_barcode(barcode: str) -> bool:
+    """Весовой товар: 13 цифр, начинается с 20."""
+    digits = ''.join(filter(str.isdigit, barcode))
+    return len(digits) == 13 and digits.startswith('20')
+
+
+def process_quantity(qty_str: str, is_weight: bool) -> str:
+    """
+    Для весовых товаров:
+      - уже десятичное → нормализуем
+      - целое >= 10 → делим на 1000 (граммы в кг)
+      - целое < 10 → оставляем (штуки)
+    """
+    if not is_weight:
+        return qty_str.strip()
+
+    normalized = qty_str.strip().replace(',', '.')
+
+    if '.' in normalized:
+        try:
+            val = float(normalized)
+            return _fmt_kg(val)
+        except ValueError:
+            return qty_str
+
+    try:
+        qty_int = int(normalized)
+    except ValueError:
+        return qty_str
+
+    if qty_int >= 10:
+        return _fmt_kg(qty_int / 1000)
+    return str(qty_int)
+
+
+def _fmt_kg(val: float) -> str:
+    """Форматируем кг: 0.867, убираем лишние нули."""
+    s = f"{val:.3f}"
+    s = s.rstrip('0').rstrip('.')
+    return s
+
+
+def _add_quantities(q1: str, q2: str, is_weight: bool) -> str:
+    try:
+        v1 = float(q1.replace(',', '.'))
+        v2 = float(q2.replace(',', '.'))
+        total = v1 + v2
+        if is_weight:
+            return _fmt_kg(total)
+        if total == int(total):
+            return str(int(total))
+        return str(total)
+    except ValueError:
+        return q1
+
+
+def _fmt_amount(amount: float) -> str:
+    """Форматируем сумму: пробел как разделитель тысяч, без копеек если целое."""
+    if amount == int(amount):
+        return f"{int(amount):,}".replace(',', ' ')
+    return f"{amount:,.2f}".replace(',', ' ')
+
+
+def _div13(amount: float) -> float:
+    return round(amount / 1.3, 2)
+
+
+def format_receipt_data(data: dict) -> str:
+    items_raw = data.get('items', [])
+    receipt_total_raw = data.get('receipt_total', -1)
+    store_name = (data.get('store_name') or '').strip()
+    date_str = (data.get('date') or '').strip()
+
+    # Парсим receipt_total
+    try:
+        receipt_total = float(receipt_total_raw) if receipt_total_raw not in (-1, None, '') else -1
+    except (ValueError, TypeError):
+        receipt_total = -1
+
+    # Обрабатываем позиции
+    processed = []
+    for item in items_raw:
+        barcode = str(item.get('barcode', 'НЕОПОЗНАНО')).strip()
+        qty_str = str(item.get('quantity', '0')).strip()
+        try:
+            amount = float(item.get('amount', 0))
+        except (ValueError, TypeError):
+            amount = 0.0
+
+        weight = is_weight_barcode(barcode)
+        display_barcode = barcode[:6] if weight else barcode
+        display_qty = process_quantity(qty_str, weight)
+
+        processed.append({
+            'barcode': display_barcode,
+            'qty': display_qty,
+            'amount': amount,
+            'is_weight': weight,
+        })
+
+    # Объединяем дубликаты по баркоду
+    merged: dict = {}
+    order: list = []
+    for item in processed:
+        key = item['barcode']
+        if key in merged:
+            merged[key]['qty'] = _add_quantities(
+                merged[key]['qty'], item['qty'], item['is_weight']
+            )
+            merged[key]['amount'] += item['amount']
+        else:
+            merged[key] = item.copy()
+            order.append(key)
+
+    # Собираем сообщение
+    lines = []
+
+    # Шапка
+    header_parts = []
+    if store_name and store_name.upper() != 'НЕОПОЗНАНО':
+        header_parts.append(f"🧾 <b>{escape_html(store_name)}</b>")
+    else:
+        header_parts.append("🧾 <b>Чек</b>")
+    if date_str and date_str.upper() != 'НЕОПОЗНАНО':
+        header_parts.append(f"📅 {escape_html(date_str)}")
+    lines.append("  ".join(header_parts))
+    lines.append("")
+
+    # Заголовок колонок
+    lines.append("<b>№ | Баркод | Кол-во | Сумма | Сумма/1.3</b>")
+    lines.append("")
+
+    # Строки товаров
+    calculated_total = 0.0
+    for i, key in enumerate(order, 1):
+        item = merged[key]
+        d13 = _div13(item['amount'])
+        calculated_total += item['amount']
+
+        line = (
+            f"{i} | "
+            f"<code>{escape_html(item['barcode'])}</code> | "
+            f"<code>{escape_html(item['qty'])}</code> | "
+            f"<code>{_fmt_amount(item['amount'])}</code> | "
+            f"<code>{_fmt_amount(d13)}</code>"
+        )
+        lines.append(line)
+
+    lines.append("")
+
+    # Итоги
+    total_d13 = _div13(calculated_total)
+    lines.append(f"<b>Итого:</b> <code>{_fmt_amount(calculated_total)}</code>")
+    lines.append(f"<b>Итого / 1.3:</b> <code>{_fmt_amount(total_d13)}</code>")
+
+    # Сверка
+    if receipt_total > 0:
+        diff = abs(calculated_total - receipt_total)
+        if diff < 1.0:
+            lines.append("\n✅ Сверка пройдена")
+        else:
+            lines.append(
+                f"\n⚠️ Расхождение с чеком: "
+                f"в чеке <code>{_fmt_amount(receipt_total)}</code>, "
+                f"подсчитано <code>{_fmt_amount(calculated_total)}</code>"
+            )
+
+    return '\n'.join(lines)
