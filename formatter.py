@@ -117,7 +117,7 @@ def format_receipt_data(data: dict) -> str:
     lines.append("  ".join(header_parts))
     lines.append("")
 
-    lines.append("<b>№ ( - ) Баркод ( - ) Кол-во ( - ) Сумма ( - ) Сумма/1.3</b>")
+    lines.append("<b>№ - Баркод - Кол-во - Сумма - Сумма/1.3</b>")
     lines.append("")
 
     calculated_total = 0.0
@@ -128,9 +128,9 @@ def format_receipt_data(data: dict) -> str:
 
         line = (
             f"{i}) "
-            f"<code>{escape_html(item['barcode'])}</code> ( - ) "
-            f"<code>{escape_html(item['qty'])}</code> ( - ) "
-            f"<code>{_fmt_amount(item['amount'])}</code> ( - ) "
+            f"<code>{escape_html(item['barcode'])}</code> - "
+            f"<code>{escape_html(item['qty'])}</code> - "
+            f"<code>{_fmt_amount(item['amount'])}</code> - "
             f"<code>{_fmt_amount(d13)}</code>"
         )
         lines.append(line)
