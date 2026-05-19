@@ -105,22 +105,10 @@ def format_receipt_data(data: dict) -> str:
             merged[key] = item.copy()
             order.append(key)
 
-    lines = []
-
-    header_parts = []
-    if store_name and store_name.upper() != 'НЕОПОЗНАНО':
-        header_parts.append(f"🧾 <b>{escape_html(store_name)}</b>")
-    else:
-        header_parts.append("🧾 <b>Чек</b>")
-    if date_str and date_str.upper() != 'НЕОПОЗНАНО':
-        header_parts.append(f"📅 {escape_html(date_str)}")
-    lines.append("  ".join(header_parts))
-    lines.append("")
-
-    lines.append("<b>№ - Баркод - Кол-во - Сумма - Сумма/1.3</b>")
-    lines.append("")
+    header = "<b>№ - Баркод - Кол-во - Сумма - Сумма/1.3</b>"
 
     calculated_total = 0.0
+    item_lines = []
     for i, key in enumerate(order, 1):
         item = merged[key]
         d13 = _div13(item['amount'])
@@ -133,23 +121,36 @@ def format_receipt_data(data: dict) -> str:
             f"<code>{_fmt_amount(item['amount'])}</code> - "
             f"<code>{_fmt_amount(d13)}</code>"
         )
-        lines.append(line)
-
-    lines.append("")
+        item_lines.append(line)
 
     total_d13 = _div13(calculated_total)
-    lines.append(f"<b>Итого:</b> <code>{_fmt_amount(calculated_total)}</code>")
-    lines.append(f"<b>Итого / 1.3:</b> <code>{_fmt_amount(total_d13)}</code>")
+    footer_lines = []
+    footer_lines.append(f"<b>Итого:</b> <code>{_fmt_amount(calculated_total)}</code>")
+    footer_lines.append(f"<b>Итого / 1.3:</b> <code>{_fmt_amount(total_d13)}</code>")
 
     if receipt_total > 0:
         diff = abs(calculated_total - receipt_total)
         if diff < 1.0:
-            lines.append("\n✅ Сверка пройдена")
+            footer_lines.append("\n✅ Сверка пройдена")
         else:
-            lines.append(
+            footer_lines.append(
                 f"\n⚠️ Расхождение с чеком: "
                 f"в чеке <code>{_fmt_amount(receipt_total)}</code>, "
                 f"подсчитано <code>{_fmt_amount(calculated_total)}</code>"
             )
 
-    return '\n'.join(lines)
+    # Разбиваем на чанки по 20 строк (лимит Telegram: 100 entities, 4 на строку)
+    CHUNK = 20
+    messages = []
+    for start in range(0, len(item_lines), CHUNK):
+        chunk = item_lines[start:start + CHUNK]
+        if start == 0:
+            messages.append('\n'.join([header, ''] + chunk))
+        else:
+            messages.append('\n'.join(chunk))
+
+    if not messages:
+        messages.append(header)
+
+    messages.append('\n'.join(footer_lines))
+    return messages
