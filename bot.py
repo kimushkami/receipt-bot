@@ -40,9 +40,10 @@ async def _process_group(media_group_id: str, context: ContextTypes.DEFAULT_TYPE
     status_msg = await message.reply_text(f"⏳ Анализирую чек ({label})...")
 
     try:
-        result = await analyze_receipt(group['images'])
+        parts = await analyze_receipt(group['images'])
         await status_msg.delete()
-        await message.reply_text(result, parse_mode='HTML')
+        for part in parts:
+            await message.reply_text(part, parse_mode='HTML')
     except Exception as e:
         logger.error(f"Error: {e}")
         await status_msg.edit_text(f"❌ Ошибка при обработке чека: {e}")
@@ -74,9 +75,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         status_msg = await msg.reply_text("⏳ Анализирую чек...")
         try:
-            result = await analyze_receipt([image_bytes])
+            parts = await analyze_receipt([image_bytes])
             await status_msg.delete()
-            await msg.reply_text(result, parse_mode='HTML')
+            for part in parts:
+                await msg.reply_text(part, parse_mode='HTML')
         except Exception as e:
             logger.error(f"Error: {e}")
             await status_msg.edit_text(f"❌ Ошибка при обработке чека: {e}")
